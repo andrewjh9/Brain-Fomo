@@ -1,0 +1,66 @@
+#!/bin/bash
+
+#SBATCH --partition=gpu_a100
+#SBATCH --gpus=1
+#SBATCH --job-name=con_loss
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=9
+#SBATCH --time=2:00:00
+#SBATCH --output=output/con_loss_%x_%j.out
+
+module purge
+module load 2023
+
+echo "--- Environment After Loading Modules ---"
+echo "Loaded modules:"
+module list
+echo "----------------------------------------"
+echo "CUDA_HOME is set to: $CUDA_HOME"
+echo "Path to nvcc: $(which nvcc)"
+echo "----------------------------------------"
+
+export PATH="$HOME/miniconda3/bin:$PATH"
+eval "$(conda shell.bash hook)"
+
+conda activate labram_pretrain
+echo "Activated conda environment: $CONDA_DEFAULT_ENV"
+echo "Python version: $(python --version)"
+echo "Python path: $(which python)"
+echo "Pip path: $(which pip3)"
+
+echo "--- Checking PyTorch GPU Access ---"
+srun python -uc "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available? {torch.cuda.is_available()}'); print(f'CUDA version built with: {torch.version.cuda}'); print(f'Device name: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else None}')"
+echo "---------------------------------"
+
+cd $HOME
+cd ../../
+echo "[$(date)] Using dir: $(pwd)"
+
+FILEPATH="home/scur0546/pretraining/run_labram_pretraining.py"
+
+echo "Torchrun path: $(which torchrun)"
+
+
+echo "[$(date)] Running file: $FILEPATH"
+
+export OMP_NUM_THREADS=1
+
+srun torchrun --nnodes=1 --nproc_per_node=1 "$FILEPATH" \
+        --output_dir home/scur0546/residual_vector_quantization_experiments/checkpoints/contrastive_loss \
+        --log_dir home/scur0546/residual_vector_quantization_experiments/log/contrastive_loss_labram_base_pre_train \
+        --model labram_base_patch200_1600_8k_vocab \
+        --tokenizer_model vqnsp_encoder_base_decoder_3x200x12 \
+        --tokenizer_weight home/scur0546/residual_vector_quantization_experiments/checkpoints/vqnsp.pth \
+        --batch_size 64 \
+        --lr 5e-4 \
+        --warmup_epochs 5 \
+        --clip_grad 3.0 \
+        --drop_path 0. \
+        --layer_scale_init_value 0.1 \
+        --opt_betas 0.9 0.98 \
+        --opt_eps 1e-8  \
+        --epochs 50 \
+        --save_ckpt_freq 5 \
+        --codebook_dim 64 \
+        --gradient_accumulation_steps 1 \
+        --contrastive_loss \

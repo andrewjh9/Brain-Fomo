@@ -1,0 +1,66 @@
+#!/bin/bash
+
+#SBATCH --partition=gpu_a100
+#SBATCH --gpus=1
+#SBATCH --job-name=b_finetune_tuev
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=9
+#SBATCH --time=24:00:00
+#SBATCH --output=output/b_finetune_tuev_20_epochs_%x_%j.out
+
+module purge
+module load 2023
+
+echo "--- Environment After Loading Modules ---"
+echo "Loaded modules:"
+module list
+echo "----------------------------------------"
+echo "CUDA_HOME is set to: $CUDA_HOME"
+echo "Path to nvcc: $(which nvcc)"
+echo "----------------------------------------"
+
+export PATH="$HOME/miniconda3/bin:$PATH"
+eval "$(conda shell.bash hook)"
+
+conda activate labram_pretrain
+echo "Activated conda environment: $CONDA_DEFAULT_ENV"
+echo "Python version: $(python --version)"
+echo "Python path: $(which python)"
+echo "Pip path: $(which pip3)"
+
+echo "--- Checking PyTorch GPU Access ---"
+srun python -uc "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available? {torch.cuda.is_available()}'); print(f'CUDA version built with: {torch.version.cuda}'); print(f'Device name: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else None}')"
+echo "---------------------------------"
+
+cd $HOME
+cd ../../
+echo "[$(date)] Using dir: $(pwd)"
+
+FILEPATH="home/scur0546/pretraining/run_class_finetuning.py"
+
+echo "Torchrun path: $(which torchrun)"
+
+
+echo "[$(date)] Running file: $FILEPATH"
+
+export OMP_NUM_THREADS=1
+
+srun torchrun --nnodes=1 --nproc_per_node=1 "$FILEPATH" \
+    --output_dir home/scur0546/pretraining/checkpoints/finetune_baseline_tuev_20_epochs/ \
+    --log_dir home/scur0546/pretraining/log/finetune_baseline_tuev_20_epochs/ \
+    --model labram_base_patch200_200 \
+    --finetune home/scur0546/pretraining/checkpoints/pretrain_tuev_20_epochs/checkpoint-19.pth \
+    --weight_decay 0.05 \
+    --batch_size 64 \
+    --lr 5e-4 \
+    --update_freq 1 \
+    --warmup_epochs 5 \
+    --epochs 20 \
+    --layer_decay 0.65 \
+    --drop_path 0.1 \
+    --save_ckpt_freq 5 \
+    --disable_rel_pos_bias \
+    --abs_pos_emb \
+    --dataset TUEV \
+    --disable_qkv_bias \
+    --seed 0
